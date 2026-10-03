@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>🐹 쿼카 잡기 — Whack-a-Quokka</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    height: 100%;
+    font-family: 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+    background: linear-gradient(160deg, #ffe9a8 0%, #ffd06b 40%, #f9a826 100%);
+    overflow: hidden;
+    user-select: none;
+    touch-action: manipulation;
+  }
+  #app {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 14px 12px;
+    max-width: 560px;
+    margin: 0 auto;
+  }
+
+  /* ---------- HUD ---------- */
+  .hud {
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: stretch;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .stat {
+    flex: 1;
+    background: rgba(255,255,255,0.55);
+    border: 3px solid #b5651d;
+    border-radius: 16px;
+    padding: 8px 6px;
+    text-align: center;
+    box-shadow: 0 4px 0 rgba(0,0,0,0.12);
+  }
+  .stat .label { font-size: 11px; font-weight: 700; color: #8a4b12; letter-spacing: .5px; }
+  .stat .value { font-size: 24px; font-weight: 900; color: #5a3208; line-height: 1.1; }
+  .stat .value.flash { animation: pop .25s ease; }
+  @keyframes pop { 0% { transform: scale(1.5); } 100% { transform: scale(1); } }
+
+  /* time bar */
+  .timewrap { width: 100%; height: 12px; background: rgba(255,255,255,0.5);
+    border: 2px solid #b5651d; border-radius: 10px; overflow: hidden; margin-bottom: 14px; }
+  #timebar { height: 100%; width: 100%; background: linear-gradient(90deg,#7ed957,#ffd93d,#ff6b6b);
+    background-size: 300% 100%; background-position: 0% 0; transition: width .25s linear; }
+
+  /* ---------- Board ---------- */
+  .board {
+    width: 100%;
+    aspect-ratio: 3 / 3.3;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(3, 1fr);
+    gap: 10px;
+    margin-bottom: 6px;
+  }
+  .hole {
+    position: relative;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    overflow: hidden;
+    cursor: pointer;
+  }
+  /* dirt mound */
+  .hole::after {
+    content: "";
+    position: absolute;
+    bottom: 0; left: 50%;
+    transform: translateX(-50%);
+    width: 100%;
+    height: 25%;
+    background: radial-gradient(ellipse at 50% 0%, #a9692f 0%, #8a4f1f 70%, #6e3d15 100%);
+    border-radius: 50% 50% 14px 14px / 70% 70% 14px 14px;
+    box-shadow: inset 0 6px 10px rgba(0,0,0,0.35);
+    z-index: 3;
+  }
+  /* hole shadow opening */
+  .hole .pit {
+    position: absolute;
+    bottom: 5%; left: 50%;
+    transform: translateX(-50%);
+    width: 74%;
+    height: 16%;
+    background: radial-gradient(ellipse at 50% 50%, #3a230d 0%, #20140a 100%);
+    border-radius: 50%;
+    z-index: 2;
+  }
+  /* the critter */
+  .critter {
+    position: absolute;
+    bottom: 2%;
+    width: 72%;
+    aspect-ratio: 1/1;
+    transform: translateY(115%);
+    transition: transform .12s cubic-bezier(.34,1.56,.64,1);
+    z-index: 2;
+    font-size: 0; /* emoji sized via svg */
+    will-change: transform;
+  }
+  .hole.up .critter { transform: translateY(-20%); }
+  .hole.bonk .critter { transform: translateY(118%) scale(.6); transition: transform .12s ease; }
+
+  .critter svg { width: 100%; height: 100%; display: block; }
+
+  /* hit splash */
+  .splash {
+    position: absolute;
+    left: 50%; top: 38%;
+    transform: translate(-50%,-50%) scale(0);
+    font-size: 34px; font-weight: 900;
+    z-index: 5; pointer-events: none;
+    text-shadow: 0 2px 4px rgba(0,0,0,.3);
+  }
+  .splash.go { animation: splash .55s ease forwards; }
+  @keyframes splash {
+    0% { transform: translate(-50%,-50%) scale(.2); opacity: 0; }
+    30% { transform: translate(-50%,-90%) scale(1.2); opacity: 1; }
+    100% { transform: translate(-50%,-160%) scale(1); opacity: 0; }
+  }
+
+  /* ---------- Overlay ---------- */
+  .overlay {
+    position: fixed; inset: 0;
+    background: rgba(60,30,5,0.72);
+    backdrop-filter: blur(3px);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 50; padding: 20px;
+  }
+  .overlay.hidden { display: none; }
+  .card {
+    background: linear-gradient(160deg,#fff7e6,#ffe6b3);
+    border: 5px solid #b5651d;
+    border-radius: 24px;
+    padding: 26px 24px;
+    text-align: center;
+    max-width: 360px; width: 100%;
+    box-shadow: 0 10px 0 rgba(0,0,0,0.25);
+  }
+  .card h1 { font-size: 30px; color: #6e3d15; margin-bottom: 6px; line-height: 1.15; }
+  .card .sub { font-size: 15px; color: #8a5a25; margin-bottom: 18px; line-height: 1.5; }
+  .card .big { font-size: 56px; font-weight: 900; color: #f9a826;
+    text-shadow: 0 3px 0 #b5651d; margin: 6px 0 4px; }
+  .card .best { font-size: 14px; color: #8a5a25; margin-bottom: 18px; }
+  .legend { display:flex; gap:14px; justify-content:center; margin-bottom:18px; flex-wrap:wrap; }
+  .legend div { font-size: 13px; color:#6e3d15; font-weight:600; display:flex; align-items:center; gap:5px;}
+  .btn {
+    appearance: none; border: none; cursor: pointer;
+    background: linear-gradient(180deg,#7ed957,#4caf3f);
+    color: #fff; font-size: 20px; font-weight: 900;
+    padding: 14px 30px; border-radius: 16px;
+    box-shadow: 0 5px 0 #2e7d22;
+    transition: transform .06s, box-shadow .06s;
+    letter-spacing: .5px;
+  }
+  .btn:active { transform: translateY(4px); box-shadow: 0 1px 0 #2e7d22; }
+  .title-emoji { font-size: 60px; display:block; margin-bottom: 4px; }
+
+  /* difficulty pills */
+  .diffs { display:flex; gap:8px; justify-content:center; margin-bottom:18px; }
+  .pill {
+    flex:1; padding:9px 4px; border-radius:12px; cursor:pointer;
+    border:3px solid #b5651d; background:rgba(255,255,255,.5);
+    font-weight:800; color:#8a4b12; font-size:13px;
+  }
+  .pill.sel { background:#f9a826; color:#fff; box-shadow:0 3px 0 #b5651d; }
+
+  /* ---------- Distraction Toy ---------- */
+  #toy-wrap {
+    position: fixed;
+    bottom: 18px; right: 16px;
+    z-index: 60;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+  #toy-btn {
+    width: 68px; height: 68px;
+    cursor: pointer;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.5);
+    border: 3px solid #b5651d;
+    box-shadow: 0 4px 0 rgba(0,0,0,0.18);
+    display: flex; align-items: center; justify-content: center;
+    transition: transform .08s;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    padding: 6px;
+  }
+  #toy-btn:active { transform: scale(.88); }
+  #toy-btn svg { width:100%; height:100%; display:block; }
+  #toy-tap-count {
+    font-size: 11px; font-weight: 800; color: #8a4b12;
+    background: rgba(255,255,255,0.6);
+    border-radius: 8px; padding: 1px 6px;
+    pointer-events: none;
+  }
+  .toy-popup {
+    position: fixed;
+    font-size: 22px;
+    pointer-events: none;
+    z-index: 70;
+    animation: toy-fly .7s ease forwards;
+  }
+  @keyframes toy-fly {
+    0%   { transform: translate(-50%, 0) scale(.5); opacity: 1; }
+    60%  { transform: translate(-50%, -60px) scale(1.2); opacity: 1; }
+    100% { transform: translate(-50%, -100px) scale(1); opacity: 0; }
+  }
+  /* mood faces for toy */
+  #toy-btn.bounce { animation: toy-bounce .35s cubic-bezier(.34,1.7,.64,1); }
+  @keyframes toy-bounce { 0%,100%{transform:scale(1)} 40%{transform:scale(.7) rotate(-8deg)} 70%{transform:scale(1.18) rotate(5deg)} }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="hud">
+    <div class="stat"><div class="label">점수</div><div class="value" id="score">0</div></div>
+    <div class="stat"><div class="label">콤보</div><div class="value" id="combo">x1</div></div>
+    <div class="stat"><div class="label">시간</div><div class="value" id="time">30</div></div>
+  </div>
+  <div class="timewrap"><div id="timebar"></div></div>
+  <div class="board" id="board"></div>
+</div>
+
+<!-- Distraction Toy -->
+<div id="toy-wrap">
+  <div id="toy-btn" title="딴짓 쿼카"></div>
+  <div id="toy-tap-count">0번 터치</div>
+</div>
+
+<!-- Start / End overlay -->
+<div class="overlay" id="overlay">
+  <div class="card" id="card">
+    <!-- filled by JS -->
+  </div>
+</div>
+
+<script>
+const board = document.getElementById('board');
+const $score = document.getElementById('score');
+const $combo = document.getElementById('combo');
+const $time  = document.getElementById('time');
+const $timebar = document.getElementById('timebar');
+const overlay = document.getElementById('overlay');
+const card = document.getElementById('card');
+
+const HOLES = 9;
+const holes = [];
+
+// ---- SVG critters ----
+// Happy quokka (good — tap it)
+function quokkaSVG(){
+  return `<svg viewBox="0 0 100 100">
+    <!-- flat one-color silhouette (overlapping shapes, same fill = no seams) -->
+    <g fill="#4a382a">
+      <!-- rounded ears -->
+      <path d="M27 32 Q22 12 41 26 Z"/>
+      <path d="M73 32 Q78 12 59 26 Z"/>
+      <!-- body -->
+      <path d="M50 96 C30 96 24 80 26 66 C28 54 38 50 50 50 C62 50 72 54 74 66 C76 80 70 96 50 96 Z"/>
+      <!-- head -->
+      <ellipse cx="50" cy="44" rx="27" ry="25"/>
+    </g>
+    <!-- big white eyes -->
+    <ellipse cx="40" cy="44" rx="8.4" ry="9.4" fill="#fff"/>
+    <ellipse cx="60" cy="44" rx="8.4" ry="9.4" fill="#fff"/>
+    <circle cx="41.5" cy="45.5" r="3.3" fill="#241a12"/>
+    <circle cx="58.5" cy="45.5" r="3.3" fill="#241a12"/>
+    <circle cx="43" cy="43.5" r="1.1" fill="#fff"/>
+    <circle cx="60" cy="43.5" r="1.1" fill="#fff"/>
+    <!-- tiny nose + gentle smile -->
+    <circle cx="50" cy="53" r="1.7" fill="#e3a9a0"/>
+    <path d="M45.5 55.5 Q50 60 54.5 55.5" stroke="#e3a9a0" stroke-width="1.7" fill="none" stroke-linecap="round"/>
+    <!-- thin whiskers -->
+    <g stroke="#4a382a" stroke-width="1.5" stroke-linecap="round">
+      <path d="M31 50 L13 47"/>
+      <path d="M31 54 L13 56"/>
+      <path d="M69 50 L87 47"/>
+      <path d="M69 54 L87 56"/>
+    </g>
+  </svg>`;
+}
+// Bomb (bad — don't tap)
+function bombSVG(){
+  return `<svg viewBox="0 0 100 100">
+    <!-- fuse + spark -->
+    <rect x="44" y="12" width="12" height="13" rx="3.5" fill="#2a2a2c"/>
+    <path d="M55 15 Q71 4 73 18" stroke="#9a6a3a" stroke-width="4" fill="none" stroke-linecap="round"/>
+    <circle cx="73" cy="18" r="6.5" fill="#ffd54a"/>
+    <circle cx="73" cy="18" r="3.4" fill="#ff7043"/>
+    <path d="M73 7 L73 3 M82 12 L86 9 M83 21 L88 22 M63 11 L59 8" stroke="#ffb300" stroke-width="2" stroke-linecap="round"/>
+    <!-- flat black bomb body -->
+    <circle cx="50" cy="60" r="33" fill="#1c1c1f"/>
+    <!-- big white eyes (style match) -->
+    <ellipse cx="40" cy="58" rx="8" ry="9" fill="#fff"/>
+    <ellipse cx="60" cy="58" rx="8" ry="9" fill="#fff"/>
+    <circle cx="41" cy="60" r="3.2" fill="#1c1c1f"/>
+    <circle cx="59" cy="60" r="3.2" fill="#1c1c1f"/>
+    <!-- angry brows + frown -->
+    <path d="M31 49 L48 56" stroke="#1c1c1f" stroke-width="3.4" stroke-linecap="round"/>
+    <path d="M69 49 L52 56" stroke="#1c1c1f" stroke-width="3.4" stroke-linecap="round"/>
+    <path d="M43 74 Q50 68 57 74" stroke="#fff" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+  </svg>`;
+}
+// Golden quokka (bonus — worth more)
+function goldenSVG(){
+  return `<svg viewBox="0 0 100 100">
+    <!-- sparkles -->
+    <text x="11" y="28" font-size="13">✨</text>
+    <text x="80" y="34" font-size="11">✨</text>
+    <!-- flat gold silhouette -->
+    <g fill="#e8b021">
+      <path d="M27 32 Q22 12 41 26 Z"/>
+      <path d="M73 32 Q78 12 59 26 Z"/>
+      <path d="M50 96 C30 96 24 80 26 66 C28 54 38 50 50 50 C62 50 72 54 74 66 C76 80 70 96 50 96 Z"/>
+      <ellipse cx="50" cy="44" rx="27" ry="25"/>
+    </g>
+    <!-- crown -->
+    <path d="M37 17 L42 25 L50 19 L58 25 L63 17 L61 29 L39 29 Z" fill="#ffd400" stroke="#c8920a" stroke-width="1.2" stroke-linejoin="round"/>
+    <circle cx="50" cy="17" r="2" fill="#ff5a5a"/>
+    <!-- big white eyes -->
+    <ellipse cx="40" cy="44" rx="8.4" ry="9.4" fill="#fff"/>
+    <ellipse cx="60" cy="44" rx="8.4" ry="9.4" fill="#fff"/>
+    <circle cx="41.5" cy="45.5" r="3.3" fill="#5a3f08"/>
+    <circle cx="58.5" cy="45.5" r="3.3" fill="#5a3f08"/>
+    <circle cx="43" cy="43.5" r="1.1" fill="#fff"/>
+    <circle cx="60" cy="43.5" r="1.1" fill="#fff"/>
+    <!-- nose + smile -->
+    <circle cx="50" cy="53" r="1.7" fill="#b07d12"/>
+    <path d="M45.5 55.5 Q50 60 54.5 55.5" stroke="#b07d12" stroke-width="1.7" fill="none" stroke-linecap="round"/>
+    <!-- whiskers -->
+    <g stroke="#e8b021" stroke-width="1.5" stroke-linecap="round">
+      <path d="M31 50 L13 47"/><path d="M31 54 L13 56"/>
+      <path d="M69 50 L87 47"/><path d="M69 54 L87 56"/>
+    </g>
+  </svg>`;
+}
+
+// build board
+for(let i=0;i<HOLES;i++){
+  const hole = document.createElement('div');
+  hole.className = 'hole';
+  hole.innerHTML = `<div class="pit"></div>
+    <div class="critter"></div>
+    <div class="splash"></div>`;
+  board.appendChild(hole);
+  holes.push({
+    el: hole,
+    critter: hole.querySelector('.critter'),
+    splash: hole.querySelector('.splash'),
+    type: null,
+    active: false,
+    timer: null,
+  });
+  hole.addEventListener('pointerdown', ()=>whack(i));
+}
+
+// ---- Game state ----
+let score=0, combo=1, comboTimer=0, timeLeft=30, running=false;
+let spawnTimer=null, gameTimer=null;
+let cfg = { time:30, min:600, max:1000, upMin:700, upMax:1100, bombChance:0.18, goldChance:0.08 };
+// safe storage wrappers (file:// can block localStorage in some browsers)
+function loadBest(){ try { return +(localStorage.getItem('quokkaBest')||0); } catch(e){ return 0; } }
+function saveBest(v){ try { localStorage.setItem('quokkaBest', v); } catch(e){} }
+let best = loadBest();
+
+const DIFFS = {
+  easy:   { label:'쉬움',   time:40, min:750, max:1200, upMin:850, upMax:1300, bombChance:0.10, goldChance:0.10 },
+  normal: { label:'보통',   time:30, min:600, max:1000, upMin:700, upMax:1100, bombChance:0.18, goldChance:0.08 },
+  hard:   { label:'어려움', time:30, min:380, max:700,  upMin:520, upMax:820,  bombChance:0.26, goldChance:0.06 },
+};
+let chosenDiff = 'normal';
+
+function rand(a,b){ return a + Math.random()*(b-a); }
+
+function showCritter(){
+  if(!running) return;
+  const free = holes.filter(h=>!h.active);
+  if(free.length){
+    const h = free[Math.floor(Math.random()*free.length)];
+    const r = Math.random();
+    let type = 'quokka';
+    if(r < cfg.bombChance) type='bomb';
+    else if(r < cfg.bombChance + cfg.goldChance) type='gold';
+    h.type = type;
+    h.active = true;
+    h.critter.innerHTML = type==='bomb'?bombSVG():type==='gold'?goldenSVG():quokkaSVG();
+    h.el.classList.remove('bonk');
+    h.el.classList.add('up');
+    const up = rand(cfg.upMin, cfg.upMax);
+    h.timer = setTimeout(()=>hide(h), up);
+  }
+  spawnTimer = setTimeout(showCritter, rand(cfg.min, cfg.max));
+}
+
+function hide(h){
+  h.el.classList.remove('up');
+  clearTimeout(h.timer);
+  setTimeout(()=>{ h.active=false; h.type=null; }, 150);
+}
+
+function whack(i){
+  const h = holes[i];
+  if(!running || !h.active || h.el.classList.contains('bonk')) return;
+  const type = h.type;
+  h.el.classList.add('bonk');
+  clearTimeout(h.timer);
+
+  if(type==='bomb'){
+    // penalty
+    combo = 1; $combo.textContent='x1';
+    score = Math.max(0, score-15);
+    flashSplash(h, '💥 -15', '#d63031');
+    buzz(); shake();
+  } else {
+    combo = Math.min(combo+1, 9);
+    comboTimer = 1600;
+    let base = type==='gold'?10:5;
+    let gain = base * combo;
+    score += gain;
+    $combo.textContent = 'x'+combo;
+    $combo.classList.add('flash'); setTimeout(()=>$combo.classList.remove('flash'),250);
+    flashSplash(h, '+'+gain, type==='gold'?'#f9a826':'#2ecc71');
+    ding(type==='gold');
+  }
+  $score.textContent = score;
+  $score.classList.add('flash'); setTimeout(()=>$score.classList.remove('flash'),250);
+  setTimeout(()=>{ h.active=false; h.type=null; }, 180);
+}
+
+function flashSplash(h, txt, color){
+  h.splash.textContent = txt;
+  h.splash.style.color = color;
+  h.splash.classList.remove('go'); void h.splash.offsetWidth;
+  h.splash.classList.add('go');
+}
+
+function shake(){
+  board.animate([
+    {transform:'translateX(0)'},{transform:'translateX(-8px)'},
+    {transform:'translateX(8px)'},{transform:'translateX(0)'}
+  ],{duration:200});
+}
+
+// ---- tiny WebAudio sfx ----
+let actx;
+function tone(freq, dur, type='sine', vol=0.2){
+  try{
+    if(!actx) actx = new (window.AudioContext||window.webkitAudioContext)();
+    const o=actx.createOscillator(), g=actx.createGain();
+    o.type=type; o.frequency.value=freq;
+    o.connect(g); g.connect(actx.destination);
+    g.gain.setValueAtTime(vol, actx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, actx.currentTime+dur);
+    o.start(); o.stop(actx.currentTime+dur);
+  }catch(e){}
+}
+function ding(gold){ tone(gold?880:660,0.12,'triangle',0.25); if(gold) tone(1320,0.14,'triangle',0.18); }
+function buzz(){ tone(120,0.25,'sawtooth',0.3); }
+
+// ---- timer / loop ----
+let lastTick;
+function tick(now){
+  if(!running) return;
+  if(!lastTick) lastTick = now;
+  const dt = now - lastTick; lastTick = now;
+  timeLeft -= dt/1000;
+  if(comboTimer>0){ comboTimer-=dt; if(comboTimer<=0){ combo=1; $combo.textContent='x1'; } }
+  if(timeLeft<=0){ timeLeft=0; endGame(); return; }
+  $time.textContent = Math.ceil(timeLeft);
+  const pct = (timeLeft/cfg.time)*100;
+  $timebar.style.width = pct+'%';
+  $timebar.style.backgroundPosition = (100-pct)+'% 0';
+  requestAnimationFrame(tick);
+}
+
+function startGame(){
+  cfg = {...DIFFS[chosenDiff]};
+  score=0; combo=1; comboTimer=0; timeLeft=cfg.time; running=true; lastTick=0;
+  $score.textContent='0'; $combo.textContent='x1'; $time.textContent=cfg.time;
+  $timebar.style.width='100%';
+  overlay.classList.add('hidden');
+  holes.forEach(h=>{ h.active=false; h.type=null; h.el.classList.remove('up','bonk'); });
+  showCritter();
+  requestAnimationFrame(tick);
+}
+
+function endGame(){
+  running=false;
+  clearTimeout(spawnTimer);
+  holes.forEach(h=>{ clearTimeout(h.timer); h.el.classList.remove('up'); });
+  const isBest = score>best;
+  if(isBest){ best=score; saveBest(best); }
+  let rank = score>=300?'🏆 쿼카 마스터!' : score>=180?'🥇 굉장해요!' :
+             score>=90?'🥈 좋아요!' : score>=30?'🥉 통과!' : '🌱 다시 도전!';
+  card.innerHTML = `
+    <span class="title-emoji">${isBest?'🎉':'⏰'}</span>
+    <h1>${rank}</h1>
+    <div class="big">${score}</div>
+    <div class="best">${isBest?'🆕 신기록 달성!':'최고 기록: '+best}</div>
+    <button class="btn" id="again">다시 하기 🔁</button>`;
+  overlay.classList.remove('hidden');
+  document.getElementById('again').onclick = showStart;
+}
+
+function showStart(){
+  card.innerHTML = `
+    <span class="title-emoji">🐹</span>
+    <h1>쿼카 잡기</h1>
+    <div class="sub">구멍에서 톡! 튀어나오는 <b>쿼카</b>를 빠르게 터치하세요.<br>연속으로 잡으면 <b>콤보</b>가 쌓여요!</div>
+    <div class="legend">
+      <div>🐹 쿼카 +5</div>
+      <div>✨ 황금쿼카 +10</div>
+      <div>💣 폭탄 -15</div>
+    </div>
+    <div class="diffs" id="diffs">
+      ${Object.keys(DIFFS).map(k=>`<div class="pill ${k===chosenDiff?'sel':''}" data-d="${k}">${DIFFS[k].label}</div>`).join('')}
+    </div>
+    <div class="best" style="margin-bottom:14px">최고 기록: ${best}</div>
+    <button class="btn" id="start">시작! ▶</button>`;
+  overlay.classList.remove('hidden');
+  document.querySelectorAll('#diffs .pill').forEach(p=>{
+    p.onclick=()=>{ chosenDiff=p.dataset.d;
+      document.querySelectorAll('#diffs .pill').forEach(x=>x.classList.remove('sel'));
+      p.classList.add('sel'); };
+  });
+  document.getElementById('start').onclick = ()=>{ if(actx) actx.resume(); startGame(); };
+}
+
+showStart();
+
+// ---- Distraction Toy ----
+(function(){
+  const btn = document.getElementById('toy-btn');
+  const counter = document.getElementById('toy-tap-count');
+  let tapCount = 0;
+  let moodIdx = 0;
+
+  // Toy SVG faces: normal, happy, dizzy, love, grumpy
+  const MOODS = [
+    // 0 normal
+    () => quokkaSVG(),
+    // 1 happy (big smile)
+    () => `<svg viewBox="0 0 100 100">
+      <g fill="#4a382a">
+        <path d="M27 32 Q22 12 41 26 Z"/>
+        <path d="M73 32 Q78 12 59 26 Z"/>
+        <path d="M50 96 C30 96 24 80 26 66 C28 54 38 50 50 50 C62 50 72 54 74 66 C76 80 70 96 50 96 Z"/>
+        <ellipse cx="50" cy="44" rx="27" ry="25"/>
+      </g>
+      <ellipse cx="40" cy="44" rx="9" ry="10" fill="#fff"/>
+      <ellipse cx="60" cy="44" rx="9" ry="10" fill="#fff"/>
+      <circle cx="41" cy="46" r="4" fill="#241a12"/>
+      <circle cx="59" cy="46" r="4" fill="#241a12"/>
+      <circle cx="43" cy="44" r="1.4" fill="#fff"/>
+      <circle cx="61" cy="44" r="1.4" fill="#fff"/>
+      <circle cx="50" cy="53" r="1.7" fill="#e3a9a0"/>
+      <path d="M42 57 Q50 66 58 57" stroke="#e3a9a0" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+      <g stroke="#4a382a" stroke-width="1.5" stroke-linecap="round">
+        <path d="M31 50 L13 47"/><path d="M31 54 L13 56"/>
+        <path d="M69 50 L87 47"/><path d="M69 54 L87 56"/>
+      </g>
+    </svg>`,
+    // 2 dizzy
+    () => `<svg viewBox="0 0 100 100">
+      <g fill="#4a382a">
+        <path d="M27 32 Q22 12 41 26 Z"/>
+        <path d="M73 32 Q78 12 59 26 Z"/>
+        <path d="M50 96 C30 96 24 80 26 66 C28 54 38 50 50 50 C62 50 72 54 74 66 C76 80 70 96 50 96 Z"/>
+        <ellipse cx="50" cy="44" rx="27" ry="25"/>
+      </g>
+      <ellipse cx="40" cy="44" rx="8.4" ry="9.4" fill="#fff"/>
+      <ellipse cx="60" cy="44" rx="8.4" ry="9.4" fill="#fff"/>
+      <text x="31" y="50" font-size="14" fill="#241a12">×</text>
+      <text x="51" y="50" font-size="14" fill="#241a12">×</text>
+      <text x="40" y="22" font-size="13">💫</text>
+      <circle cx="50" cy="53" r="1.7" fill="#e3a9a0"/>
+      <path d="M45 57 Q50 54 55 57" stroke="#e3a9a0" stroke-width="1.7" fill="none" stroke-linecap="round"/>
+    </svg>`,
+    // 3 love
+    () => `<svg viewBox="0 0 100 100">
+      <g fill="#4a382a">
+        <path d="M27 32 Q22 12 41 26 Z"/>
+        <path d="M73 32 Q78 12 59 26 Z"/>
+        <path d="M50 96 C30 96 24 80 26 66 C28 54 38 50 50 50 C62 50 72 54 74 66 C76 80 70 96 50 96 Z"/>
+        <ellipse cx="50" cy="44" rx="27" ry="25"/>
+      </g>
+      <ellipse cx="40" cy="44" rx="8.4" ry="9.4" fill="#fff"/>
+      <ellipse cx="60" cy="44" rx="8.4" ry="9.4" fill="#fff"/>
+      <text x="29" y="51" font-size="16">❤️</text>
+      <text x="49" y="51" font-size="16">❤️</text>
+      <circle cx="50" cy="53" r="1.7" fill="#e3a9a0"/>
+      <path d="M44 56 Q50 62 56 56" stroke="#e3a9a0" stroke-width="2" fill="none" stroke-linecap="round"/>
+      <text x="60" y="22" font-size="12">💕</text>
+    </svg>`,
+    // 4 grumpy / sleepy
+    () => `<svg viewBox="0 0 100 100">
+      <g fill="#4a382a">
+        <path d="M27 32 Q22 12 41 26 Z"/>
+        <path d="M73 32 Q78 12 59 26 Z"/>
+        <path d="M50 96 C30 96 24 80 26 66 C28 54 38 50 50 50 C62 50 72 54 74 66 C76 80 70 96 50 96 Z"/>
+        <ellipse cx="50" cy="44" rx="27" ry="25"/>
+      </g>
+      <ellipse cx="40" cy="48" rx="8.4" ry="5" fill="#fff"/>
+      <ellipse cx="60" cy="48" rx="8.4" ry="5" fill="#fff"/>
+      <circle cx="41" cy="49" r="2.6" fill="#241a12"/>
+      <circle cx="59" cy="49" r="2.6" fill="#241a12"/>
+      <path d="M32 38 L48 43" stroke="#4a382a" stroke-width="3" stroke-linecap="round"/>
+      <path d="M68 38 L52 43" stroke="#4a382a" stroke-width="3" stroke-linecap="round"/>
+      <circle cx="50" cy="55" r="1.7" fill="#e3a9a0"/>
+      <path d="M44 59 Q50 56 56 59" stroke="#e3a9a0" stroke-width="1.7" fill="none" stroke-linecap="round"/>
+      <text x="62" y="25" font-size="13">💤</text>
+    </svg>`,
+  ];
+
+  const EMOJIS = ['🐾','💖','⭐','✨','🌟','😄','💛','🎵','🎶','❤️'];
+  const SOUNDS = [660, 740, 880, 784, 523];
+
+  function toySound(i){
+    try {
+      if(!actx) actx = new (window.AudioContext||window.webkitAudioContext)();
+      const freq = SOUNDS[i % SOUNDS.length];
+      tone(freq, 0.1, 'triangle', 0.18);
+      if(i % 3 === 0) tone(freq*1.5, 0.08, 'triangle', 0.1);
+    } catch(e){}
+  }
+
+  function spawnPopup(emoji){
+    const el = document.createElement('div');
+    el.className = 'toy-popup';
+    el.textContent = emoji;
+    const r = btn.getBoundingClientRect();
+    el.style.left = (r.left + r.width/2) + 'px';
+    el.style.top = (r.top + r.height/2) + 'px';
+    document.body.appendChild(el);
+    el.addEventListener('animationend', ()=>el.remove());
+  }
+
+  btn.innerHTML = MOODS[0]();
+
+  btn.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    tapCount++;
+    counter.textContent = tapCount + '번 터치';
+
+    // cycle mood every 5 taps, or pick based on tap count
+    const specialMoods = [1,2,3,4];
+    if(tapCount % 10 === 0) moodIdx = 3; // love every 10
+    else if(tapCount % 7 === 0) moodIdx = 2; // dizzy every 7
+    else if(tapCount % 5 === 0) moodIdx = 4; // sleepy every 5
+    else if(tapCount % 2 === 0) moodIdx = 1; // happy on even
+    else moodIdx = 0; // normal on odd
+
+    btn.innerHTML = MOODS[moodIdx]();
+
+    // bounce animation
+    btn.classList.remove('bounce');
+    void btn.offsetWidth;
+    btn.classList.add('bounce');
+
+    // popup emoji
+    const emoji = EMOJIS[tapCount % EMOJIS.length];
+    spawnPopup(emoji);
+
+    toySound(tapCount);
+
+    // reset to normal after 800ms
+    setTimeout(()=>{
+      if(!btn.classList.contains('bounce')) return;
+      btn.innerHTML = MOODS[0]();
+      moodIdx = 0;
+    }, 900);
+  });
+})();
+</script>
+</body>
+</html>
